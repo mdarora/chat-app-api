@@ -23,7 +23,7 @@ const sendOtpViaMail = email =>{
             from : process.env.MAIL,
             to : email,
             subject : 'OTP Verification code for Chat-app',
-            text : `Your 6 digit One Time Password (OTP) for Chat-app is\n${otp}`
+            text : `Your One Time Password (OTP) for Chat-app is\n${otp}`
         }
 
         transporter.sendMail(mailOptions, (error, info) => {
@@ -48,7 +48,11 @@ router.get("/", (req, res)=>{
 });
 
 router.post("/register", async (req, res)=>{
+
+    regUser = {};
+    generatedOTP = 0;
     const {name, email, password, cpassword} = req.body;
+
     if (!name || !email || !password || !cpassword) {
         return res.status(422).json({error : "All fields are required"});
     } else if (password !== cpassword){
@@ -57,7 +61,6 @@ router.post("/register", async (req, res)=>{
 
     try {
         const findByEmail = await User.findOne({email});
-        console.log('findByEmail : ',findByEmail);
         if (findByEmail){
             return res.status(422).json({error : "Email already registered"});
         }
@@ -79,7 +82,7 @@ router.post("/register", async (req, res)=>{
 });
 
 router.post('/otpverification', async (req, res) => {
-    if (req.body.enteredOtp !== generatedOTP) {
+    if (parseInt(req.body.enteredOtp) !== generatedOTP) {
         return res.status(422).json({error : 'Invalid OTP'});
     }
 
