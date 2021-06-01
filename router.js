@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
+const jwt = require('jsonwebtoken');
+
 const User = require('./db/models/userSchema');
 
 const transporter = nodemailer.createTransport({
@@ -45,6 +47,34 @@ const sendOtpViaMail = email =>{
 
 router.get("/", (req, res)=>{
     res.status(200).json({message : "home page of server"});
+});
+
+router.post('/login', async (req, res) =>{
+    const {email, password} = req.body;
+    if (!email || !password){
+        return res.status(422).json({error: 'All fields are required'});
+    }
+
+    try {
+        
+        const findByEmail = await User.findOne({email}, {password: 1});
+        if (!findByEmail){
+            return res.status(422).json({error: 'Invalid details'});
+        }
+
+        const matchPass = await bcrypt.compare(password, findByEmail.password);
+        if(!matchPass){
+            return res.status(422).json({error: 'Invalid details'});
+        }
+
+        const token = jwt.sign({_id : findByEmail._id}, process.env.SECRET_KEY);
+        res.cookie('jwtoken', token);
+        return res.status(200).json({message: 'login successful'});
+
+    } catch (error) {
+        console.log(error);
+        return res.status(500).json({error: 'Something went wrong!'});
+    }
 });
 
 router.post("/register", async (req, res)=>{
