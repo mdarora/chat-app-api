@@ -3,8 +3,10 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
+const loginAuth = require('./middleware/loginAuth');
 
 const User = require('./db/models/userSchema');
+const Chat = require('./db/models/chatSchema');
 
 const transporter = nodemailer.createTransport({
     service : 'gmail',
@@ -45,8 +47,115 @@ const sendOtpViaMail = (email, subject, text) =>{
 
 ///////////////////////////-Routes-/////////////////////////////////////
 
-router.get("/", (req, res)=>{
-    res.status(200).json({message : "home page of server"});
+router.get("/getChats", loginAuth, async  (req, res)=>{
+    
+    try {
+        const loggedUserId = req.id;
+        const getChats = await Chat.find({$or: [
+            {"member1.id": {
+                $eq : loggedUserId
+            }},
+            {"member2.id": {
+                $eq : loggedUserId
+            }}
+        ]}).sort({"lastMessage.messageTime": -1});
+            
+        if(!getChats){
+            return res.status(404).json({error: 'No chats found'});
+        } else if(getChats.length === 0){
+            return res.status(404).json({error: 'No chats found'});
+        }
+        res.status(200).json({message : getChats, loggedUserId});
+
+    } catch (error) {
+        console.log(error.name, error.message);
+        return res.status(500).json({error: 'Something went wrong!'});
+    }
+
+});
+
+router.post('/searchUsers', loginAuth, async (req, res) =>{
+    const loggedUserId = req.id;
+    const queryName = req.body.queryName;
+
+    if(!queryName){
+        return res.status(422).json({error:'Invalid input'});
+    }
+
+    try {
+        const findUsersByName = await User.find({
+            name: {
+                $regex: new RegExp(queryName, 'i')
+            },
+            _id:{
+                $ne: loggedUserId
+            }
+        },{
+            password: 0
+        });
+
+        if(!findUsersByName || findUsersByName.length === 0){
+            return res.status(404).json({error: 'No user found'});
+        }
+
+        res.status(200).json(findUsersByName);
+
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({error: 'Something went wrong!'});
+    }
+});
+
+router.post('/addChat', loginAuth, async (req,res)=>{
+    const loggedUserId = req.id;
+    const loggedUserName = req.name;
+    const otherUserId = req.body.otherUserId;
+    
+    if ( !loggedUserId || !otherUserId){
+        return res.status(422).json({error: 'Invalid user id'});
+    } else if (loggedUserId === otherUserId){
+        return res.status(422).json({error: 'Invalid request'});
+    }
+
+    try {
+        const findById = await User.findOne({_id: otherUserId});
+        
+        if(!findById){
+            return res.status(404).json({error: 'User not found'});
+        };
+
+        const findChatByMembers = await Chat.findOne({$and: [
+            {"member1.id": {
+                $in : [loggedUserId, otherUserId]
+            }},
+            {"member2.id": {
+                $in : [otherUserId, loggedUserId]
+            }}
+        ]});
+        
+        if(findChatByMembers){
+            return res.status(422).json({error: 'Chat already exist'});
+        }
+
+        const newChat = new Chat({
+            member1: {
+                name:loggedUserName,
+                id:loggedUserId
+            },
+            member2: {
+                name:findById.name,
+                id:findById._id
+            },
+        });
+        const saveChat = await newChat.save();
+        return res.status(201).json({message: `${findById.name} added to your chats.`});
+        
+
+    } catch (error) {
+        console.log(error.name , error.message);
+        return res.status(500).json({error: 'Something went wrong!'});
+    }
+
 });
 
 router.post('/login', async (req, res) =>{
@@ -57,7 +166,7 @@ router.post('/login', async (req, res) =>{
 
     try {
         
-        const findByEmail = await User.findOne({email}, {password: 1});
+        const findByEmail = await User.findOne({email});
         if (!findByEmail){
             return res.status(422).json({error: 'Invalid details'});
         }
@@ -67,7 +176,7 @@ router.post('/login', async (req, res) =>{
             return res.status(422).json({error: 'Invalid details'});
         }
 
-        const token = jwt.sign({_id : findByEmail._id}, process.env.SECRET_KEY);
+        const token = jwt.sign({_id : findByEmail._id, name: findByEmail.name}, process.env.SECRET_KEY);
         res.cookie('jwtoken', token);
         return res.status(200).json({message: 'login successful'});
 
@@ -172,7 +281,7 @@ router.post('/reset-password', async (req, res) => {
 
 router.put('/reset-password', async (req, res) => {
     if(generatedresetOTP == 0 || !resetId){
-        return res.status(401).json({error: 'not allowed'});
+        return res.status(401).json({error: 'Not allowed'});
     }
 
     const enteredResetOtp = req.body.enteredResetOtp;
@@ -207,6 +316,10 @@ router.put('/reset-password', async (req, res) => {
         console.log(error);
         return res.status(500).json({error: 'Something went wrong!'});
     }
+});
+
+router.get("/logout", (req, res) => {
+    res.clearCookie("jwtoken").status(200).json({message:"logged out"});
 });
 
 module.exports = router;;
